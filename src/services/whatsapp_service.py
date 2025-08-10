@@ -375,7 +375,17 @@ client.initialize();
         Returns:
             True si inició exitosamente, False si falló
         """
+        from ..utils.config import get_settings
+        settings = get_settings()
+        
         logger.info("🚀 Iniciando WhatsApp service...")
+        
+        # Skip WhatsApp startup in production where Node.js is not available
+        if settings.is_production:
+            logger.warning("⚠️ WhatsApp service disabled in production environment")
+            logger.warning("API endpoints will work but WhatsApp integration is disabled")
+            self.connected = False  # Mark as not connected but don't fail
+            return True  # Return True to allow app to start
         
         try:
             script_path = self.session_path / "whatsapp-bot.js"
@@ -425,6 +435,15 @@ client.initialize();
     
     async def _install_node_dependencies(self):
         """Instala dependencias Node.js necesarias."""
+        # Skip Node.js installation in production environments where Node.js is not available
+        from ..utils.config import get_settings
+        settings = get_settings()
+        
+        if settings.is_production:
+            logger.warning("⚠️ Skipping Node.js dependencies installation in production")
+            logger.warning("WhatsApp functionality will be limited without Node.js environment")
+            return
+            
         logger.info("📦 Instalando dependencias Node.js...")
         
         package_json = {
