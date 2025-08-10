@@ -1,34 +1,18 @@
-# Configuración de deployment para Render
+# Configuración simplificada para Render
 services:
   - type: web
     name: whatsapp-chatbot
     env: python
-    region: ohio  # o la región más cercana
-    plan: starter  # Plan básico, puede escalarse
+    region: ohio
+    plan: starter
     
-    # Comandos de build y start
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      # Instalar Node.js dependencies para WhatsApp
-      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-      source ~/.bashrc
-      nvm install 18
-      nvm use 18
-      npm install whatsapp-web.js qrcode-terminal
-      
-    startCommand: python main.py
-    
-    # Health check configuration
+    # Health check
     healthCheckPath: /health
     
-    # Environment variables que deben configurarse en Render dashboard
+    # Environment variables
     envVars:
       - key: OPENAI_API_KEY
-        sync: false  # Configurar manualmente por seguridad
-        
-      - key: OPENAI_MODEL
-        value: gpt-4-1106-preview
+        sync: false  # Set manually in dashboard
         
       - key: ENVIRONMENT
         value: production
@@ -39,20 +23,8 @@ services:
       - key: WHATSAPP_HEADLESS
         value: true
         
-      - key: WHATSAPP_SESSION_PATH
-        value: /opt/render/project/session
-        
-      - key: PORT
-        value: 10000
-        
-      - key: HOST
-        value: 0.0.0.0
-        
-      - key: MAX_WORKERS
-        value: 4
-        
-      - key: CORS_ORIGINS
-        value: "*"
+      - key: DEBUG
+        value: false
         
       # Rate limiting para producción
       - key: RATE_LIMIT_PER_USER
@@ -61,22 +33,12 @@ services:
       - key: RATE_LIMIT_WINDOW
         value: 60
         
-      - key: WHATSAPP_MESSAGE_DELAY
-        value: 2.0  # Más conservador en producción
-        
       # Memory management
       - key: MAX_CONTEXT_TOKENS
         value: 6000
         
       - key: MAX_MEMORY_MESSAGES
         value: 20
-        
-      # Retry configuration
-      - key: MAX_API_RETRIES
-        value: 3
-        
-      - key: MAX_WHATSAPP_RECONNECTION_ATTEMPTS
-        value: 5
         
       # Department emails (configurar según empresa)
       - key: SALES_EMAIL
@@ -97,35 +59,16 @@ services:
       - key: INFORMATION_EMAIL
         value: info@empresa.com
         
-      # Redis connection desde addon
+      # Redis connection from addon
       - key: REDIS_URL
         fromDatabase:
           name: whatsapp-redis
           property: connectionString
-          
-      - key: REDIS_SESSION_TTL
-        value: 7200  # 2 horas
-        
-      - key: REDIS_MAX_CONNECTIONS
-        value: 10  # Reducido para plan starter
-        
-    # Auto-deploy en push a main branch
-    autoDeploy: true
-    branch: main
-    
-    # Disk space para sesiones WhatsApp
-    disk:
-      name: whatsapp-sessions
-      mountPath: /opt/render/project/session
-      sizeGB: 1
 
-# Database addon para Redis
+# Redis database
 databases:
   - name: whatsapp-redis
     databaseName: whatsapp_chatbot
     user: whatsapp_user
-    plan: starter  # Plan básico Redis
-    region: ohio  # Misma región que el servicio
-    
-    # Redis configuration
-    ipAllowList: []  # Permitir acceso desde cualquier IP del servicio
+    plan: starter
+    region: ohio

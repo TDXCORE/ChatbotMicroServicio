@@ -475,11 +475,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 if __name__ == "__main__":
-    # Configuración para desarrollo
+    # Configuración para desarrollo local y producción
+    import os
+    
+    # Render sets PORT as environment variable
+    port = int(os.environ.get("PORT", settings.PORT))
+    host = os.environ.get("HOST", settings.HOST)
+    
     uvicorn.run(
         "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
+        host=host,
+        port=port,
         reload=settings.DEBUG,
         log_level=settings.LOG_LEVEL.lower(),
         access_log=True
