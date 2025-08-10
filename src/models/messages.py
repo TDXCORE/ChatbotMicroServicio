@@ -8,7 +8,7 @@ y manejo del historial de conversaciones.
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class MessageType(str, Enum):
@@ -120,7 +120,8 @@ class WhatsAppMessage(BaseModel):
         description="Lista de errores encontrados durante procesamiento"
     )
     
-    @validator('from_number', 'to_number')
+    @field_validator('from_number', 'to_number')
+    @classmethod
     def validate_whatsapp_number(cls, v):
         """Valida formato de número WhatsApp."""
         if not v.endswith('@c.us') and not v.endswith('@g.us'):
@@ -129,7 +130,8 @@ class WhatsAppMessage(BaseModel):
                 return f"{v}@c.us"  # Asume chat individual por defecto
         return v
     
-    @validator('body')
+    @field_validator('body')
+    @classmethod
     def validate_body_length(cls, v):
         """Valida longitud del mensaje."""
         if len(v) > 4096:  # Límite realista para WhatsApp

@@ -8,7 +8,8 @@ para todos los servicios del chatbot WhatsApp.
 import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from pydantic import BaseSettings, Field, validator
+from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -131,31 +132,36 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = True
     
-    @validator('WHATSAPP_SESSION_PATH')
+    @field_validator('WHATSAPP_SESSION_PATH')
+    @classmethod
     def validate_session_path(cls, v):
         """Valida y crea directorio de sesión si no existe."""
         path = Path(v)
         path.mkdir(parents=True, exist_ok=True)
         return str(path.absolute())
     
-    @validator('CORS_ORIGINS')
+    @field_validator('CORS_ORIGINS')
+    @classmethod
     def validate_cors_origins(cls, v):
         """Convierte CORS origins de string a lista."""
         if v == "*":
             return ["*"]
         return [origin.strip() for origin in v.split(",")]
     
-    @validator('ALLOWED_IPS')
+    @field_validator('ALLOWED_IPS')
+    @classmethod
     def validate_allowed_ips(cls, v):
         """Convierte IPs permitidas a lista."""
         return [ip.strip() for ip in v.split(",")]
     
-    @validator('WHATSAPP_BROWSER_ARGS')
+    @field_validator('WHATSAPP_BROWSER_ARGS')
+    @classmethod
     def validate_browser_args(cls, v):
         """Convierte argumentos del browser a lista."""
         return [arg.strip() for arg in v.split(",")]
     
-    @validator('OPENAI_API_KEY')
+    @field_validator('OPENAI_API_KEY')
+    @classmethod
     def validate_openai_key(cls, v):
         """Valida formato básico de OpenAI API key."""
         if not v.startswith('sk-'):
@@ -164,7 +170,8 @@ class Settings(BaseSettings):
             raise ValueError('OpenAI API key parece inválida (muy corta)')
         return v
     
-    @validator('ENVIRONMENT')
+    @field_validator('ENVIRONMENT')
+    @classmethod
     def validate_environment(cls, v):
         """Valida que el environment sea válido."""
         valid_envs = ['development', 'staging', 'production']
@@ -172,7 +179,8 @@ class Settings(BaseSettings):
             raise ValueError(f'Environment debe ser uno de: {valid_envs}')
         return v
     
-    @validator('LOG_LEVEL')
+    @field_validator('LOG_LEVEL')
+    @classmethod
     def validate_log_level(cls, v):
         """Valida nivel de logging."""
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']

@@ -8,7 +8,7 @@ y reglas de escalamiento automático.
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, time
 from enum import Enum
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 from .intents import IntentType, MessageIntent
 
