@@ -6,9 +6,15 @@ con LangChain/OpenAI y enruta a departamentos correspondientes.
 """
 
 import asyncio
+import sys
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Dict, Any, Optional
+
+# Add the project root to Python path for imports
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
