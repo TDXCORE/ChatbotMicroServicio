@@ -126,19 +126,23 @@ async def lifespan(app: FastAPI):
             context_service=context_service  # Can be None in production
         )
         
-        # WhatsApp Service
+        # WhatsApp Service - Optional in production/Render
         whatsapp_service = WhatsAppService()
         
-        # Registrar event handler para mensajes entrantes
-        whatsapp_service.register_event_handler(
-            'message_received',
-            handle_whatsapp_message
-        )
-        
-        # Iniciar WhatsApp service
-        if not await whatsapp_service.start():
-            logger.error("❌ Error iniciando WhatsApp Service")
-            raise RuntimeError("WhatsApp Service initialization failed")
+        if settings.is_production or is_render:
+            logger.warning("⚠️ WhatsApp Service disabled in production/Render")
+            logger.warning("Core API functionality available without WhatsApp integration")
+        else:
+            # Registrar event handler para mensajes entrantes
+            whatsapp_service.register_event_handler(
+                'message_received',
+                handle_whatsapp_message
+            )
+            
+            # Iniciar WhatsApp service
+            if not await whatsapp_service.start():
+                logger.error("❌ Error iniciando WhatsApp Service")
+                raise RuntimeError("WhatsApp Service initialization failed")
         
         logger.info("✅ Todos los servicios iniciados correctamente")
         
