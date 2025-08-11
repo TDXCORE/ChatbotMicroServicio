@@ -529,6 +529,9 @@ async def init_whatsapp_session(user_id: str):
         user_wa_service.session_path = user_session_path
         user_session_path.mkdir(exist_ok=True, parents=True)
         
+        # CRÍTICO: Crear el script Node.js en el directorio correcto del usuario
+        user_wa_service._create_whatsapp_bot_script()
+        
         # Registrar handler para QR code
         qr_received = False
         qr_code_data = None
