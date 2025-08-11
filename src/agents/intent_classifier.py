@@ -255,7 +255,9 @@ class IntentClassifierAgent:
             # Obtener o crear contexto
             context = request.context
             if not context:
-                context = await self.context_service.get_context(request.user_id)
+                if self.context_service is not None:
+                    context = await self.context_service.get_context(request.user_id)
+                
                 if not context:
                     context = ConversationContext(
                         user_id=request.user_id,
