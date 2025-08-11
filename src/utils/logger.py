@@ -381,59 +381,31 @@ class LoggingMiddleware:
     Registra información de requests/responses para debugging.
     """
     
-    def __init__(self, logger: logging.Logger):
-        self.logger = logger
+    def __init__(self, app, logger=None):
+        self.app = app
+        self.logger = logger or get_logger(__name__)
     
-    async def __call__(self, request, call_next):
-        """Procesa request y response logging."""
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+            
+        # Create request wrapper for logging
+        request_path = scope.get("path", "unknown")
+        request_method = scope.get("method", "unknown")
         
         start_time = datetime.now()
         
         # Log request
         self.logger.info(
-            f"HTTP {request.method} {request.url.path}",
+            f"HTTP {request_method} {request_path}",
             extra={
-                'http_method': request.method,
-                'http_path': request.url.path,
-                'client_ip': request.client.host if request.client else 'unknown',
-                'user_agent': request.headers.get('user-agent', 'unknown')
+                'http_method': request_method,
+                'http_path': request_path,
             }
         )
         
-        # Procesar request
-        try:
-            response = await call_next(request)
-            duration = (datetime.now() - start_time).total_seconds() * 1000
-            
-            # Log response
-            self.logger.info(
-                f"HTTP {response.status_code} - {duration:.2f}ms",
-                extra={
-                    'http_status': response.status_code,
-                    'response_time_ms': duration,
-                    'http_method': request.method,
-                    'http_path': request.url.path
-                }
-            )
-            
-            return response
-            
-        except Exception as e:
-            duration = (datetime.now() - start_time).total_seconds() * 1000
-            
-            # Log error
-            self.logger.error(
-                f"HTTP request failed - {duration:.2f}ms",
-                extra={
-                    'http_method': request.method,
-                    'http_path': request.url.path,
-                    'error_message': str(e),
-                    'response_time_ms': duration
-                },
-                exc_info=True
-            )
-            
-            raise
+        await self.app(scope, receive, send)
 
 
 # Auto-inicializar logging cuando se importa el módulo
