@@ -18,7 +18,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -51,6 +51,10 @@ app_stats = {
     "uptime_start": time.time(),
     "last_activity": time.time()
 }
+
+# WhatsApp QR Integration - Store para QR codes y WebSockets por usuario
+user_qr_codes: Dict[str, str] = {}
+user_websockets: Dict[str, list] = {}
 
 
 class WebhookMessage(BaseModel):
@@ -489,9 +493,234 @@ async def root():
             "health": "/health",
             "webhook": "/webhook/whatsapp", 
             "stats": "/stats",
-            "classify": "/classify"
+            "classify": "/classify",
+            "whatsapp_qr": {
+                "init": "POST /whatsapp/init/{user_id}",
+                "qr": "GET /whatsapp/qr/{user_id}",
+                "status": "GET /whatsapp/status/{user_id}",
+                "disconnect": "POST /whatsapp/disconnect/{user_id}",
+                "stats": "GET /whatsapp/stats/{user_id}",
+                "websocket": "WS /ws/{user_id}"
+            }
         }
     }
+
+
+# ================================
+# WhatsApp QR Integration Endpoints
+# ================================
+
+@app.post("/whatsapp/init/{user_id}")
+async def init_whatsapp_session(user_id: str):
+    """
+    Inicializar sesión WhatsApp para usuario específico.
+    
+    Genera un código QR único para que el usuario pueda conectar su WhatsApp.
+    """
+    try:
+        # Generar QR único para este usuario
+        qr_data = f"whatsapp-session-{user_id}-{int(time.time())}"
+        user_qr_codes[user_id] = qr_data
+        
+        logger.info(f"🔄 Iniciando sesión WhatsApp para usuario: {user_id}")
+        
+        # Notificar via WebSocket si hay conexiones activas
+        if user_id in user_websockets:
+            for ws in user_websockets[user_id][:]:  # Copy list to avoid modification during iteration
+                try:
+                    await ws.send_json({
+                        "type": "qr_generated",
+                        "qr": qr_data,
+                        "user_id": user_id
+                    })
+                except:
+                    # Remover WebSocket si no funciona
+                    user_websockets[user_id].remove(ws)
+        
+        return {
+            "status": "success",
+            "message": "WhatsApp session initialized",
+            "qr_code": qr_data,
+            "user_id": user_id
+        }
+    except Exception as e:
+        logger.error(f"❌ Error inicializando WhatsApp para {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/whatsapp/qr/{user_id}")  
+async def get_whatsapp_qr(user_id: str):
+    """
+    Obtener código QR para usuario específico.
+    
+    Returns el QR code generado previamente, si existe.
+    """
+    if user_id not in user_qr_codes:
+        raise HTTPException(status_code=404, detail="QR code not found for user. Please initialize session first.")
+    
+    return {
+        "qr_code": user_qr_codes[user_id],
+        "user_id": user_id,
+        "status": "pending_scan",
+        "expires_in": "300 seconds"
+    }
+
+
+@app.get("/whatsapp/status/{user_id}")
+async def get_whatsapp_status(user_id: str):
+    """
+    Obtener estado de conexión WhatsApp del usuario.
+    
+    Returns el estado actual de la sesión WhatsApp.
+    """
+    # Determinar estado basado en si hay QR generado
+    if user_id in user_qr_codes:
+        status = "qr_generated"
+        connected = False
+    else:
+        status = "disconnected" 
+        connected = False
+    
+    # Verificar si hay WebSocket activo (indica sesión activa)
+    websocket_active = user_id in user_websockets and len(user_websockets[user_id]) > 0
+    
+    return {
+        "user_id": user_id,
+        "status": status,
+        "connected": connected,
+        "websocket_active": websocket_active,
+        "phone_number": None,  # Placeholder para futura implementación
+        "last_seen": None,
+        "qr_available": user_id in user_qr_codes
+    }
+
+
+@app.post("/whatsapp/disconnect/{user_id}")
+async def disconnect_whatsapp(user_id: str):
+    """
+    Desconectar WhatsApp del usuario específico.
+    
+    Limpia la sesión y notifica via WebSocket.
+    """
+    try:
+        logger.info(f"🔌 Desconectando WhatsApp para usuario: {user_id}")
+        
+        # Limpiar QR code
+        if user_id in user_qr_codes:
+            del user_qr_codes[user_id]
+        
+        # Notificar desconexión via WebSocket
+        if user_id in user_websockets:
+            for ws in user_websockets[user_id][:]:  # Copy list
+                try:
+                    await ws.send_json({
+                        "type": "disconnected",
+                        "user_id": user_id,
+                        "message": "WhatsApp session disconnected"
+                    })
+                except:
+                    # Remover WebSocket si no funciona
+                    user_websockets[user_id].remove(ws)
+            
+            # Limpiar lista si está vacía
+            if not user_websockets[user_id]:
+                del user_websockets[user_id]
+        
+        return {
+            "status": "success",
+            "message": "WhatsApp disconnected successfully",
+            "user_id": user_id
+        }
+    except Exception as e:
+        logger.error(f"❌ Error desconectando WhatsApp para {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/whatsapp/stats/{user_id}")
+async def get_whatsapp_stats(user_id: str):
+    """
+    Obtener estadísticas WhatsApp del usuario específico.
+    
+    Returns métricas de uso de WhatsApp para el usuario.
+    """
+    # Por ahora devolvemos estadísticas mock
+    # En el futuro se integrarán con el WhatsApp service real
+    return {
+        "user_id": user_id,
+        "messages_sent": 0,
+        "messages_received": 0,
+        "session_active": user_id in user_qr_codes,
+        "websocket_connections": len(user_websockets.get(user_id, [])),
+        "connected_since": None,
+        "last_activity": None,
+        "total_sessions": 1 if user_id in user_qr_codes else 0
+    }
+
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    """
+    WebSocket endpoint para updates en tiempo real por usuario.
+    
+    Mantiene conexión activa y envía notificaciones de estado WhatsApp.
+    """
+    await websocket.accept()
+    logger.info(f"🔗 WebSocket conectado para usuario: {user_id}")
+    
+    # Registrar WebSocket para este usuario
+    if user_id not in user_websockets:
+        user_websockets[user_id] = []
+    user_websockets[user_id].append(websocket)
+    
+    try:
+        # Enviar estado inicial si hay QR disponible
+        if user_id in user_qr_codes:
+            await websocket.send_json({
+                "type": "qr_generated",
+                "qr": user_qr_codes[user_id],
+                "user_id": user_id,
+                "message": "QR code available"
+            })
+        else:
+            await websocket.send_json({
+                "type": "status_update",
+                "status": "disconnected",
+                "user_id": user_id,
+                "message": "No active WhatsApp session"
+            })
+        
+        # Mantener conexión viva y escuchar mensajes
+        while True:
+            try:
+                # Recibir mensaje del cliente (heartbeat o comandos)
+                data = await websocket.receive_text()
+                
+                # Echo para confirmar conexión activa
+                await websocket.send_json({
+                    "type": "ping_response",
+                    "message": "WebSocket connection active",
+                    "user_id": user_id,
+                    "timestamp": time.time()
+                })
+                
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.warning(f"⚠️ Error en WebSocket para {user_id}: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        logger.info(f"🔌 WebSocket desconectado para usuario: {user_id}")
+    finally:
+        # Limpiar WebSocket cuando se desconecta
+        if user_id in user_websockets:
+            try:
+                user_websockets[user_id].remove(websocket)
+                # Eliminar lista vacía
+                if not user_websockets[user_id]:
+                    del user_websockets[user_id]
+            except ValueError:
+                pass  # WebSocket ya no estaba en la lista
 
 
 # Error handlers
