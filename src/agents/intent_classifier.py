@@ -173,37 +173,53 @@ class IntentClassifierAgent:
     
     def __init__(
         self,
-        llm_service: LLMService,
-        context_service: ContextService,
+        llm_service: Optional[LLMService] = None,
+        context_service: Optional[ContextService] = None,
         confidence_threshold: float = None
     ):
         self.llm_service = llm_service
         self.context_service = context_service
         self.confidence_threshold = confidence_threshold or settings.INTENT_CONFIDENCE_THRESHOLD
         
-        # Configurar LangChain LLM
-        self.llm = ChatOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_MODEL,
-            temperature=settings.OPENAI_TEMPERATURE,
-            max_tokens=settings.OPENAI_MAX_TOKENS
-        )
+        # Configurar LangChain LLM (opcional)
+        self.llm = None
+        if llm_service is not None:
+            try:
+                self.llm = ChatOpenAI(
+                    api_key=settings.OPENAI_API_KEY,
+                    model=settings.OPENAI_MODEL,
+                    temperature=settings.OPENAI_TEMPERATURE,
+                    max_tokens=settings.OPENAI_MAX_TOKENS
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Could not initialize OpenAI LLM: {e}")
         
-        # Configurar tools
-        self.tools = [
-            IntentClassificationTool(llm_service),
-            ContextAnalysisTool(context_service)
-        ]
+        # Configurar tools (servicios opcionales)
+        self.tools = []
         
-        # Configurar agent
-        self.agent = initialize_agent(
-            tools=self.tools,
-            llm=self.llm,
-            agent=AgentType.OPENAI_FUNCTIONS,
-            verbose=True if settings.DEBUG else False,
-            max_iterations=3,  # Límite para evitar loops infinitos
-            handle_parsing_errors=True
-        )
+        if llm_service is not None:
+            self.tools.append(IntentClassificationTool(llm_service))
+        else:
+            logger.warning("⚠️ LLM Service not available - using fallback classification only")
+        
+        if context_service is not None:
+            self.tools.append(ContextAnalysisTool(context_service))
+        else:
+            logger.warning("⚠️ Context Service not available - running without conversation history")
+        
+        # Configurar agent (opcional)
+        self.agent = None
+        if self.llm is not None and len(self.tools) > 0:
+            self.agent = initialize_agent(
+                tools=self.tools,
+                llm=self.llm,
+                agent=AgentType.OPENAI_FUNCTIONS,
+                verbose=True if settings.DEBUG else False,
+                max_iterations=3,  # Límite para evitar loops infinitos
+                handle_parsing_errors=True
+            )
+        else:
+            logger.warning("⚠️ Agent not initialized - running in fallback-only mode")
         
         # Routing mapping
         self.department_configs = DEFAULT_DEPARTMENT_CONFIGS

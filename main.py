@@ -85,19 +85,40 @@ async def lifespan(app: FastAPI):
         # Inicializar servicios
         logger.info("📦 Inicializando servicios...")
         
-        # Context Service (Redis)
+        # Context Service (Redis) - Optional in production
         context_service = ContextService()
-        if not await context_service.initialize():
-            logger.error("❌ Error inicializando Context Service")
-            raise RuntimeError("Context Service initialization failed")
+        try:
+            if not await context_service.initialize():
+                if settings.is_production:
+                    logger.warning("⚠️ Context Service disabled in production (Redis not available)")
+                    context_service = None
+                else:
+                    logger.error("❌ Error inicializando Context Service")
+                    raise RuntimeError("Context Service initialization failed")
+        except Exception as e:
+            if settings.is_production:
+                logger.warning(f"⚠️ Context Service disabled in production: {e}")
+                context_service = None
+            else:
+                logger.error(f"❌ Error inicializando Context Service: {e}")
+                raise RuntimeError("Context Service initialization failed")
         
-        # LLM Service (OpenAI)
-        llm_service = LLMService()
+        # LLM Service (OpenAI) - Optional in production without API key
+        try:
+            llm_service = LLMService()
+        except Exception as e:
+            if settings.is_production:
+                logger.warning(f"⚠️ LLM Service disabled in production: {e}")
+                logger.warning("Intent classification will use fallback logic only")
+                llm_service = None
+            else:
+                logger.error(f"❌ Error inicializando LLM Service: {e}")
+                raise RuntimeError(f"LLM Service initialization failed: {e}")
         
         # Intent Classifier Agent
         intent_classifier = IntentClassifierAgent(
             llm_service=llm_service,
-            context_service=context_service
+            context_service=context_service  # Can be None in production
         )
         
         # WhatsApp Service
