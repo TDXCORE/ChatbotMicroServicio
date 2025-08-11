@@ -571,7 +571,7 @@ async def init_whatsapp_session(user_id: str):
                     except:
                         user_websockets[user_id].remove(ws)
 
-        # Registrar eventos - CORREGIR: usar 'qr_code' no 'qr_received'
+        # Registrar eventos
         user_wa_service.register_event_handler('qr_code', on_qr_received)
         user_wa_service.register_event_handler('authenticated', on_authenticated)
         

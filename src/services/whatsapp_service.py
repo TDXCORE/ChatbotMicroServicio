@@ -494,34 +494,71 @@ client.initialize();
         
         logger.info("👁️ Iniciando monitoring de WhatsApp output...")
         
-        while self.process.poll() is None:
-            try:
-                line = self.process.stdout.readline()
-                if not line:
-                    break
-                
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Logging básico para debug
-                if not line.startswith('{'):
-                    logger.debug(f"WhatsApp: {line}")
-                    continue
-                
-                # Parsear eventos JSON
+        try:
+            # Usar asyncio subprocess para non-blocking I/O
+            while self.process.poll() is None:
                 try:
-                    event_data = json.loads(line)
-                    await self._handle_event(event_data)
-                except json.JSONDecodeError:
-                    logger.debug(f"Non-JSON output: {line}")
+                    # Leer línea con timeout para evitar bloqueo indefinido
+                    line = await asyncio.wait_for(
+                        asyncio.to_thread(self.process.stdout.readline),
+                        timeout=1.0
+                    )
+                    
+                    if not line:
+                        # Si no hay línea, esperar un poco antes de continuar
+                        await asyncio.sleep(0.1)
+                        continue
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Logging básico para debug - MEJORADO
+                    logger.debug(f"WhatsApp output: {line}")
+                    
+                    if not line.startswith('{'):
+                        # Log non-JSON output para debugging
+                        if 'error' in line.lower() or 'failed' in line.lower():
+                            logger.warning(f"WhatsApp warning/error: {line}")
+                        else:
+                            logger.debug(f"WhatsApp info: {line}")
+                        continue
+                    
+                    # Parsear eventos JSON
+                    try:
+                        event_data = json.loads(line)
+                        await self._handle_event(event_data)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON decode error: {e}, line: {line}")
+                        continue
+                        
+                except asyncio.TimeoutError:
+                    # Timeout es normal, continuar monitoring
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Error monitoring output: {e}")
+                    # No romper el loop por errores menores
+                    await asyncio.sleep(0.5)
                     continue
                     
-            except Exception as e:
-                logger.error(f"❌ Error monitoring output: {e}")
-                break
-        
-        logger.warning("⚠️ WhatsApp output monitoring terminado")
+        except Exception as e:
+            logger.error(f"❌ Error crítico en monitoring: {e}")
+        finally:
+            logger.warning("⚠️ WhatsApp output monitoring terminado")
+            
+            # Verificar si el proceso terminó con error
+            if self.process and self.process.poll() is not None:
+                return_code = self.process.returncode
+                if return_code != 0:
+                    logger.error(f"❌ Proceso WhatsApp terminó con código: {return_code}")
+                    
+                    # Leer stderr para obtener más información
+                    try:
+                        stderr_output = self.process.stderr.read()
+                        if stderr_output:
+                            logger.error(f"❌ WhatsApp stderr: {stderr_output}")
+                    except:
+                        pass
     
     async def _handle_event(self, event_data: Dict[str, Any]):
         """Maneja eventos desde WhatsApp client."""
