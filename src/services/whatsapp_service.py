@@ -368,9 +368,12 @@ client.initialize();
         logger.info(f"✅ WhatsApp bot script creado en {script_path}")
         return script_path
     
-    async def start(self) -> bool:
+    async def start(self, force_start: bool = False) -> bool:
         """
         Inicia el cliente WhatsApp subprocess.
+        
+        Args:
+            force_start: Si True, fuerza el inicio incluso en producción
         
         Returns:
             True si inició exitosamente, False si falló
@@ -381,10 +384,11 @@ client.initialize();
         logger.info("🚀 Iniciando WhatsApp service...")
         
         # Skip WhatsApp startup in production where Node.js is not available
-        if settings.is_production:
+        # UNLESS force_start is True (para QR generation)
+        if settings.is_production and not force_start:
             logger.warning("⚠️ WhatsApp service disabled in production environment")
             logger.warning("API endpoints will work but WhatsApp integration is disabled")
-            self.connected = False  # Mark as not connected but don't fail
+            self.status.is_connected = False  # Mark as not connected but don't fail
             return True  # Return True to allow app to start
         
         try:
@@ -750,6 +754,94 @@ client.initialize();
         """Registra handler personalizado para eventos."""
         self.event_handlers[event_type] = handler
         logger.info(f"📝 Handler registrado para evento: {event_type}")
+    
+    async def start_for_qr_generation(self) -> bool:
+        """
+        Inicia WhatsApp service específicamente para generar QR codes.
+        
+        Este método funciona incluso en producción y está optimizado
+        para generar QR codes reales de WhatsApp Web.js.
+        
+        Returns:
+            True si se inició exitosamente para QR generation
+        """
+        logger.info("📱 Iniciando WhatsApp service para QR generation...")
+        
+        try:
+            # Verificar si Node.js está disponible
+            try:
+                result = subprocess.run(['node', '--version'], 
+                                      check=True, capture_output=True, text=True)
+                node_version = result.stdout.strip()
+                logger.info(f"✅ Node.js detectado: {node_version}")
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logger.error("❌ Node.js no está disponible - no se puede generar QR real")
+                return False
+            
+            # Verificar/instalar dependencias Node.js
+            package_json_path = self.session_path / "package.json"
+            if not package_json_path.exists():
+                logger.info("📦 Instalando dependencias Node.js para QR generation...")
+                await self._install_node_dependencies_for_qr()
+            
+            # Forzar inicio del servicio para QR generation
+            return await self.start(force_start=True)
+            
+        except Exception as e:
+            logger.error(f"❌ Error iniciando WhatsApp para QR generation: {e}")
+            return False
+    
+    async def _install_node_dependencies_for_qr(self):
+        """Instala dependencias Node.js específicamente para QR generation."""
+        logger.info("📦 Instalando dependencias Node.js para QR generation...")
+        
+        package_json = {
+            "name": "whatsapp-chatbot-qr",
+            "version": "1.0.0",
+            "description": "WhatsApp QR Code Generator",
+            "dependencies": {
+                "whatsapp-web.js": "^1.21.0",
+                "qrcode-terminal": "^0.12.0"
+            },
+            "engines": {
+                "node": ">=16.0.0"
+            }
+        }
+        
+        # Crear package.json
+        package_json_path = self.session_path / "package.json"
+        with open(package_json_path, 'w') as f:
+            json.dump(package_json, f, indent=2)
+        
+        # Instalar dependencias con timeout extendido
+        try:
+            logger.info("🔄 Ejecutando npm install...")
+            process = await asyncio.create_subprocess_exec(
+                'npm', 'install', '--production', '--no-audit', '--no-fund',
+                cwd=str(self.session_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Timeout de 5 minutos para npm install
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+                
+                if process.returncode == 0:
+                    logger.info("✅ Dependencias Node.js instaladas para QR generation")
+                    return True
+                else:
+                    logger.error(f"❌ Error instalando dependencias: {stderr.decode()}")
+                    return False
+                    
+            except asyncio.TimeoutError:
+                logger.error("❌ Timeout instalando dependencias Node.js")
+                process.kill()
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error ejecutando npm install: {e}")
+            return False
     
     async def get_status(self) -> Dict[str, Any]:
         """Obtiene estado detallado del servicio."""

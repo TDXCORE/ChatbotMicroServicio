@@ -55,6 +55,7 @@ app_stats = {
 # WhatsApp QR Integration - Store para QR codes y WebSockets por usuario
 user_qr_codes: Dict[str, str] = {}
 user_websockets: Dict[str, list] = {}
+user_whatsapp_services: Dict[str, WhatsAppService] = {}  # WhatsApp service por usuario
 
 
 class WebhookMessage(BaseModel):
@@ -515,34 +516,128 @@ async def init_whatsapp_session(user_id: str):
     """
     Inicializar sesión WhatsApp para usuario específico.
     
-    Genera un código QR único para que el usuario pueda conectar su WhatsApp.
+    Genera un código QR REAL usando WhatsApp Web.js para que el usuario pueda conectar su WhatsApp.
     """
     try:
-        # Generar QR único para este usuario
-        qr_data = f"whatsapp-session-{user_id}-{int(time.time())}"
-        user_qr_codes[user_id] = qr_data
+        logger.info(f"🔄 Iniciando sesión WhatsApp REAL para usuario: {user_id}")
         
-        logger.info(f"🔄 Iniciando sesión WhatsApp para usuario: {user_id}")
+        # Crear WhatsApp service dedicado para este usuario
+        user_wa_service = WhatsAppService()
         
-        # Notificar via WebSocket si hay conexiones activas
-        if user_id in user_websockets:
-            for ws in user_websockets[user_id][:]:  # Copy list to avoid modification during iteration
-                try:
-                    await ws.send_json({
-                        "type": "qr_generated",
-                        "qr": qr_data,
-                        "user_id": user_id
-                    })
-                except:
-                    # Remover WebSocket si no funciona
-                    user_websockets[user_id].remove(ws)
+        # Configurar session path único por usuario
+        user_session_path = user_wa_service.session_path.parent / f"session_{user_id}"
+        user_wa_service.session_path = user_session_path
+        user_session_path.mkdir(exist_ok=True, parents=True)
         
-        return {
-            "status": "success",
-            "message": "WhatsApp session initialized",
-            "qr_code": qr_data,
-            "user_id": user_id
-        }
+        # Registrar handler para QR code
+        qr_received = False
+        qr_code_data = None
+        
+        async def on_qr_received(qr_data):
+            nonlocal qr_received, qr_code_data
+            qr_received = True
+            qr_code_data = qr_data.get('qr') if isinstance(qr_data, dict) else qr_data
+            logger.info(f"📱 QR Code REAL generado para usuario {user_id}: {qr_code_data[:50]}...")
+            
+            # Almacenar QR real
+            user_qr_codes[user_id] = qr_code_data
+            
+            # Notificar via WebSocket
+            if user_id in user_websockets:
+                for ws in user_websockets[user_id][:]:
+                    try:
+                        await ws.send_json({
+                            "type": "qr_generated",
+                            "qr": qr_code_data,
+                            "user_id": user_id,
+                            "message": "Real WhatsApp QR code generated"
+                        })
+                    except:
+                        user_websockets[user_id].remove(ws)
+        
+        async def on_authenticated(session_data):
+            logger.info(f"✅ Usuario {user_id} autenticado en WhatsApp: {session_data.get('phone', 'unknown')}")
+            
+            # Notificar autenticación via WebSocket
+            if user_id in user_websockets:
+                for ws in user_websockets[user_id][:]:
+                    try:
+                        await ws.send_json({
+                            "type": "authenticated",
+                            "phone_number": session_data.get('phone'),
+                            "user_id": user_id,
+                            "message": "WhatsApp authenticated successfully"
+                        })
+                    except:
+                        user_websockets[user_id].remove(ws)
+        
+        # Registrar eventos (usar nombres correctos de eventos)
+        user_wa_service.register_event_handler('qr_code', on_qr_received)
+        user_wa_service.register_event_handler('authenticated', on_authenticated)
+        
+        # Iniciar WhatsApp service específicamente para QR generation
+        try:
+            # Usar método especializado para QR generation que funciona en producción
+            qr_start_success = await user_wa_service.start_for_qr_generation()
+            
+            if qr_start_success:
+                user_whatsapp_services[user_id] = user_wa_service
+                
+                # Esperar hasta 45 segundos por el QR code (más tiempo para producción)
+                for i in range(45):
+                    if qr_received:
+                        break
+                    await asyncio.sleep(1)
+                
+                if qr_received and qr_code_data:
+                    return {
+                        "status": "success", 
+                        "message": "WhatsApp session initialized with REAL QR code",
+                        "qr_code": qr_code_data,
+                        "user_id": user_id,
+                        "qr_type": "real_whatsapp_web",
+                        "environment": "production" if settings.is_production else "development"
+                    }
+                else:
+                    # Si no se genera QR en 45 segundos, devolver error
+                    await user_wa_service.stop()
+                    if user_id in user_whatsapp_services:
+                        del user_whatsapp_services[user_id]
+                    raise HTTPException(status_code=408, detail="Timeout waiting for WhatsApp QR code generation")
+            else:
+                # Si no se puede iniciar el servicio para QR, usar fallback
+                raise Exception("WhatsApp service could not start for QR generation")
+                
+        except Exception as wa_error:
+            logger.error(f"❌ Error con WhatsApp Web.js para {user_id}: {wa_error}")
+            
+            # Fallback: generar QR simulado con aviso
+            qr_data = f"DEMO-whatsapp-session-{user_id}-{int(time.time())}"
+            user_qr_codes[user_id] = qr_data
+            
+            # Notificar via WebSocket
+            if user_id in user_websockets:
+                for ws in user_websockets[user_id][:]:
+                    try:
+                        await ws.send_json({
+                            "type": "qr_generated",
+                            "qr": qr_data,
+                            "user_id": user_id,
+                            "message": "Demo QR code - WhatsApp Web.js not available",
+                            "demo_mode": True
+                        })
+                    except:
+                        user_websockets[user_id].remove(ws)
+            
+            return {
+                "status": "success",
+                "message": "Demo mode - WhatsApp Web.js not available, showing demo QR",
+                "qr_code": qr_data,
+                "user_id": user_id,
+                "qr_type": "demo_fallback",
+                "warning": "This is a demo QR code. Real WhatsApp integration requires Node.js environment."
+            }
+            
     except Exception as e:
         logger.error(f"❌ Error inicializando WhatsApp para {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
