@@ -41,10 +41,10 @@ class IntentClassificationTool(BaseTool):
     
     name: str = "classify_intent"
     description: str = "Clasifica la intención de un mensaje de WhatsApp del usuario"
+    llm_service: LLMService = Field(description="LLM Service for classification")
     
-    def __init__(self, llm_service: LLMService):
-        super().__init__()
-        self.llm_service = llm_service
+    def __init__(self, llm_service: LLMService, **kwargs):
+        super().__init__(llm_service=llm_service, **kwargs)
     
     def _run(self, message: str, context: str = "") -> str:
         """Run tool synchronously (no usado)."""
@@ -103,10 +103,10 @@ class ContextAnalysisTool(BaseTool):
     
     name: str = "analyze_context"
     description: str = "Analiza el contexto conversacional para mejorar clasificación"
+    context_service: ContextService = Field(description="Context Service for conversation history")
     
-    def __init__(self, context_service: ContextService):
-        super().__init__()
-        self.context_service = context_service
+    def __init__(self, context_service: ContextService, **kwargs):
+        super().__init__(context_service=context_service, **kwargs)
     
     def _run(self, user_id: str) -> str:
         """Run tool synchronously (no usado)."""
