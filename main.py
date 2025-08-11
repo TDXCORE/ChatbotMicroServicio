@@ -177,12 +177,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configurar CORS
+# Configurar CORS - Permisivo para WhatsApp QR Integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # Permitir todos los orígenes temporalmente
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
 
