@@ -6,6 +6,7 @@ con LangChain/OpenAI y enruta a departamentos correspondientes.
 """
 
 import asyncio
+import os
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -85,30 +86,34 @@ async def lifespan(app: FastAPI):
         # Inicializar servicios
         logger.info("📦 Inicializando servicios...")
         
-        # Context Service (Redis) - Optional in production
+        # Context Service (Redis) - Optional in production/Render
+        # Detect if we're running on Render platform
+        is_render = os.environ.get("RENDER") == "true" or os.environ.get("RENDER_EXTERNAL_URL") is not None
+        logger.info(f"🔍 Environment detection: production={settings.is_production}, render={is_render}")
+        
         context_service = ContextService()
         try:
             if not await context_service.initialize():
-                if settings.is_production:
-                    logger.warning("⚠️ Context Service disabled in production (Redis not available)")
+                if settings.is_production or is_render:
+                    logger.warning("⚠️ Context Service disabled in production/Render (Redis not available)")
                     context_service = None
                 else:
                     logger.error("❌ Error inicializando Context Service")
                     raise RuntimeError("Context Service initialization failed")
         except Exception as e:
-            if settings.is_production:
-                logger.warning(f"⚠️ Context Service disabled in production: {e}")
+            if settings.is_production or is_render:
+                logger.warning(f"⚠️ Context Service disabled in production/Render: {e}")
                 context_service = None
             else:
                 logger.error(f"❌ Error inicializando Context Service: {e}")
                 raise RuntimeError("Context Service initialization failed")
         
-        # LLM Service (OpenAI) - Optional in production without API key
+        # LLM Service (OpenAI) - Optional in production/Render without API key
         try:
             llm_service = LLMService()
         except Exception as e:
-            if settings.is_production:
-                logger.warning(f"⚠️ LLM Service disabled in production: {e}")
+            if settings.is_production or is_render:
+                logger.warning(f"⚠️ LLM Service disabled in production/Render: {e}")
                 logger.warning("Intent classification will use fallback logic only")
                 llm_service = None
             else:
