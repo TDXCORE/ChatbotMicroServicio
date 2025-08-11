@@ -532,46 +532,46 @@ async def init_whatsapp_session(user_id: str):
         # Registrar handler para QR code
         qr_received = False
         qr_code_data = None
-        
-        async def on_qr_received(qr_data):
+
+        def on_qr_received(qr_data):
             nonlocal qr_received, qr_code_data
             qr_received = True
             qr_code_data = qr_data.get('qr') if isinstance(qr_data, dict) else qr_data
             logger.info(f"📱 QR Code REAL generado para usuario {user_id}: {qr_code_data[:50]}...")
-            
+
             # Almacenar QR real
             user_qr_codes[user_id] = qr_code_data
-            
+
             # Notificar via WebSocket
             if user_id in user_websockets:
                 for ws in user_websockets[user_id][:]:
                     try:
-                        await ws.send_json({
+                        asyncio.create_task(ws.send_json({
                             "type": "qr_generated",
                             "qr": qr_code_data,
                             "user_id": user_id,
                             "message": "Real WhatsApp QR code generated"
-                        })
+                        }))
                     except:
                         user_websockets[user_id].remove(ws)
-        
-        async def on_authenticated(session_data):
-            logger.info(f"✅ Usuario {user_id} autenticado en WhatsApp: {session_data.get('phone', 'unknown')}")
-            
+
+        def on_authenticated(session_data):
+            logger.info(f"✅ Usuario {user_id} autenticado en WhatsApp: {session_data}")
+
             # Notificar autenticación via WebSocket
             if user_id in user_websockets:
                 for ws in user_websockets[user_id][:]:
                     try:
-                        await ws.send_json({
+                        asyncio.create_task(ws.send_json({
                             "type": "authenticated",
-                            "phone_number": session_data.get('phone'),
+                            "phone_number": session_data.get('phone_number') if isinstance(session_data, dict) else 'unknown',
                             "user_id": user_id,
                             "message": "WhatsApp authenticated successfully"
-                        })
+                        }))
                     except:
                         user_websockets[user_id].remove(ws)
-        
-        # Registrar eventos (usar nombres correctos de eventos)
+
+        # Registrar eventos - CORREGIR: usar 'qr_code' no 'qr_received'
         user_wa_service.register_event_handler('qr_code', on_qr_received)
         user_wa_service.register_event_handler('authenticated', on_authenticated)
         
